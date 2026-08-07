@@ -5,6 +5,56 @@ import { supabase } from '@/lib/supabase';
 import { SignInPage } from '../signin-page';
 
 
+vi.mock('@/lib/supabase', () => {
+  const mockUser = {
+    id: 'test-user-id',
+    email: 'test@example.com',
+    user_metadata: {},
+  };
+
+  const mockSession = {
+    user: mockUser,
+    access_token: 'fake-token',
+  };
+
+  return {
+    supabase: {
+      auth: {
+        getSession: vi
+          .fn()
+          .mockResolvedValue({ data: { session: mockSession }, error: null }),
+        getUser: vi
+          .fn()
+          .mockResolvedValue({ data: { user: mockUser }, error: null }),
+        signInWithIdToken: vi
+          .fn()
+          .mockResolvedValue({ data: { session: mockSession }, error: null }),
+        onAuthStateChange: vi.fn().mockReturnValue({
+          data: { subscription: { unsubscribe: vi.fn() } },
+        }),
+      },
+      from: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      single: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      insert: vi.fn().mockReturnThis(),
+      update: vi.fn().mockReturnThis(),
+      upsert: vi.fn().mockReturnThis(),
+      delete: vi.fn().mockReturnThis(),
+      storage: {
+        from: vi.fn().mockReturnThis(),
+        upload: vi.fn().mockResolvedValue({ data: {}, error: null }),
+        remove: vi.fn().mockResolvedValue({ data: {}, error: null }),
+        getPublicUrl: vi.fn().mockReturnValue({
+          data: { publicUrl: 'http://example.com/pic.png' },
+        }),
+      },
+    },
+  };
+});
+
 describe('SignInPage - OIDC Login Integration Tests', () => {
   let mockLoginPopup: any;
   let mockPublicClientApplication: any;
@@ -39,8 +89,8 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
     });
 
 
-    // Configure mock return value for Supabase auth
-    (supabase.auth.signInWithIdToken as any).mockResolvedValue({
+    // Configure spy on Supabase auth
+    vi.spyOn(supabase.auth, 'signInWithIdToken').mockResolvedValue({
       data: {
         session: {
           access_token: 'mock-access-token',
@@ -48,7 +98,8 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
         },
       },
       error: null,
-    });
+    } as any);
+
 
     // Define environment variables
     import.meta.env.VITE_MICROSOFT_CLIENT_ID = 'mock-microsoft-client-id';
