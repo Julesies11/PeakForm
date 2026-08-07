@@ -110,24 +110,38 @@ def test_databricks(host: str, token: str, catalog: str) -> bool:
     try:
         # ── Step 1: Validate token via /api/2.0/current-user/me ──
         me_url = f"{host}/api/2.0/current-user/me"
+        log.info(f"  Trying: GET {me_url}")
         r = requests.get(me_url, headers=headers, timeout=15)
+        log.info(f"  Response: HTTP {r.status_code}")
+        if r.text:
+            log.info(f"  Body: {r.text[:300]}")
 
         if r.status_code == 200:
             user = r.json()
             log.info(f"  ✅ Token valid — user: {user.get('userName', 'unknown')}")
         elif r.status_code == 404:
-            log.error(f"  ❌ HTTP 404 on {me_url}")
-            log.error("  → DATABRICKS_HOST is likely wrong. It must be your full workspace URL.")
-            log.error("    Find it in Databricks: click your username top-right → Copy link")
-            log.error("    Format: https://adb-XXXXXXXXXXXXXXXX.XX.azuredatabricks.net")
-            log.error(f"    (Do NOT include /sql/1.0/... or any path — just the base URL)")
-            return False
+            # Try alternative endpoint for some Databricks editions
+            alt_url = f"{host}/api/2.0/clusters/list"
+            log.info(f"  Trying alternative: GET {alt_url}")
+            r2 = requests.get(alt_url, headers=headers, timeout=15)
+            log.info(f"  Alternative response: HTTP {r2.status_code} — {r2.text[:200]}")
+            if r2.status_code == 200:
+                log.info("  ✅ Token valid (via alternative endpoint)")
+            elif r2.status_code == 401:
+                log.error("  ❌ HTTP 401 — Token is invalid or expired")
+                log.error("  → Regenerate: Databricks → User Settings → Developer → Access Tokens")
+                return False
+            else:
+                log.error(f"  ❌ Both endpoints returned errors.")
+                log.error(f"  → Host used: {host}")
+                log.error("  → Confirm this is your workspace base URL with no trailing path")
+                return False
         elif r.status_code == 401:
             log.error(f"  ❌ HTTP 401 — Token is invalid or expired")
             log.error("  → Regenerate token: Databricks → User Settings → Developer → Access Tokens")
             return False
         else:
-            log.error(f"  ❌ Unexpected HTTP {r.status_code}: {r.text[:200]}")
+            log.error(f"  ❌ Unexpected HTTP {r.status_code}: {r.text[:300]}")
             return False
 
         # ── Step 2: List SQL Warehouses ──
