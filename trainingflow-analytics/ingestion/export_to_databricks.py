@@ -1,26 +1,22 @@
 """
-TrainingFlow — Supabase Export Script
-======================================
-Queries Supabase via the Supavisor pooler (IPv4-compatible, works on free plan),
-exports each table as a Parquet file, then uploads to a Databricks Unity Catalog
-Volume using the Databricks Files REST API.
+TrainingFlow — Supabase Export Script (Local Parquet Output)
+=============================================================
+Queries Supabase via the Supavisor pooler and writes each table
+as a Parquet file to a local output directory.
 
-This script is designed to run inside a GitHub Actions Ubuntu runner.
-No Databricks cluster is required — the Files API is a REST endpoint.
+Files are then uploaded manually to Databricks Unity Catalog Volumes:
+  Databricks → Catalog → trainingflow_bronze schema → raw_uploads volume → Upload
 
-Environment variables (set as GitHub Secrets):
-  SUPABASE_POOLER_URL    — Connection pooler URI from Supabase.
-                           HOW TO FIND IT:
-                             1. Open your Supabase project dashboard
-                             2. Click the "Connect" button in the TOP navigation bar
-                             3. Select the "Connection pooler" tab (NOT "Direct connection")
-                             4. Copy the URI — replace [YOUR-PASSWORD] with your DB password
-                           OR: Settings → Configuration → Infrastructure → Connection pooling
-                           Format: postgresql://postgres.xxxx:password@aws-0-xx.pooler.supabase.com:6543/postgres
+Environment variables (set as GitHub Secrets or local .env):
+  SUPABASE_POOLER_URL    — Transaction pooler URI from Supabase Connect button
+                           Format: postgresql://postgres.XXXX:PASSWORD@aws-X.pooler.supabase.com:6543/postgres
 
-  DATABRICKS_HOST        — e.g. https://adb-xxxxxxxxxxxx.xx.azuredatabricks.net
-  DATABRICKS_TOKEN       — Databricks Personal Access Token
-  DATABRICKS_CATALOG     — Unity Catalog catalog name, e.g. "workspace"
+Output directory: ./parquet_output/
+  parquet_output/
+    tf_workouts.parquet
+    tf_daily_metrics.parquet
+    tf_events.parquet
+    ... (one file per table)
 """
 
 import os
@@ -28,12 +24,12 @@ import io
 import sys
 import logging
 from datetime import date, datetime
-from typing import Optional
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 import psycopg2
 import pyarrow as pa
 import pyarrow.parquet as pq
-import requests
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -48,21 +44,10 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SUPABASE_URL   = os.environ["SUPABASE_POOLER_URL"]
-DB_HOST        = os.environ["DATABRICKS_HOST"].rstrip("/")
-DB_TOKEN       = os.environ["DATABRICKS_TOKEN"]
-DB_CATALOG     = os.environ.get("DATABRICKS_CATALOG", "workspace")
-VOLUME_SCHEMA  = "trainingflow_bronze"
-VOLUME_NAME    = "raw_uploads"
+SUPABASE_URL = os.environ["SUPABASE_POOLER_URL"]
+OUTPUT_DIR   = Path(os.environ.get("OUTPUT_DIR", "parquet_output"))
 
-# Databricks Unity Catalog Volume base path
-# Format: /Volumes/<catalog>/<schema>/<volume>/
-VOLUME_BASE    = f"/Volumes/{DB_CATALOG}/{VOLUME_SCHEMA}/{VOLUME_NAME}"
-
-# ---------------------------------------------------------------------------
-# Table configurations
-# ---------------------------------------------------------------------------
-# Tables exported in full each run (small reference tables)
+# Reference / lookup tables — full reload each run
 FULL_TABLES = [
     "tf_sport_types",
     "tf_workout_categories",
@@ -70,8 +55,7 @@ FULL_TABLES = [
     "tf_garmin_sport_mapping",
 ]
 
-# Append/incremental tables — export all rows (Databricks dbt handles dedup)
-# For personal single-user data these are small enough for a full export daily
+# Core analytical tables
 INCREMENTAL_TABLES = [
     "tf_workouts",
     "tf_events",
@@ -85,100 +69,95 @@ ALL_TABLES = FULL_TABLES + INCREMENTAL_TABLES
 
 
 # ---------------------------------------------------------------------------
-# Supabase export
+# Connection
 # ---------------------------------------------------------------------------
-def export_table_to_parquet(conn, table_name: str) -> bytes:
-    """Query a table and return its contents as in-memory Parquet bytes."""
+def parse_pooler_url(url: str) -> dict:
+    """Safely parse pooler URL into psycopg2 kwargs — handles special chars in password."""
+    parsed = urlparse(url)
+    return {
+        "host":            parsed.hostname,
+        "port":            parsed.port or 6543,
+        "dbname":          parsed.path.lstrip("/") or "postgres",
+        "user":            unquote(parsed.username or ""),
+        "password":        unquote(parsed.password or ""),
+        "connect_timeout": 10,
+        "sslmode":         "require",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+def export_table(conn, table_name: str) -> pa.Table:
+    """Query a table and return a PyArrow table."""
     log.info(f"  Querying public.{table_name}...")
     with conn.cursor() as cur:
         cur.execute(f'SELECT * FROM public."{table_name}"')
-        rows = cur.fetchall()
+        rows     = cur.fetchall()
         col_names = [desc[0] for desc in cur.description]
 
     if not rows:
-        log.warning(f"  {table_name}: 0 rows — writing empty Parquet file")
-        # Write an empty file with schema only
+        log.warning(f"  {table_name}: 0 rows")
         schema = pa.schema([pa.field(col, pa.string()) for col in col_names])
-        table = pa.table({col: pa.array([], type=pa.string()) for col in col_names})
-    else:
-        # Build a dict of columns → lists (pyarrow handles type inference)
-        columns: dict = {col: [] for col in col_names}
-        for row in rows:
-            for col, val in zip(col_names, row):
-                # Coerce non-JSON-serialisable types to strings for safety
-                if isinstance(val, (date, datetime)):
-                    columns[col].append(str(val))
-                else:
-                    columns[col].append(val)
-        table = pa.Table.from_pydict(columns)
+        return pa.table({col: pa.array([], type=pa.string()) for col in col_names}, schema=schema)
 
+    columns: dict = {col: [] for col in col_names}
+    for row in rows:
+        for col, val in zip(col_names, row):
+            columns[col].append(str(val) if isinstance(val, (date, datetime)) else val)
+
+    table = pa.Table.from_pydict(columns)
     log.info(f"  {table_name}: {len(rows):,} rows, {len(col_names)} columns")
-
-    buf = io.BytesIO()
-    pq.write_table(table, buf, compression="snappy")
-    return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Databricks Volume upload
-# ---------------------------------------------------------------------------
-def upload_to_volume(parquet_bytes: bytes, table_name: str) -> None:
-    """Upload Parquet bytes to a Databricks Unity Catalog Volume via Files API."""
-    # Partition by date for incremental awareness in dbt
-    today = date.today().isoformat()
-    volume_path = f"{VOLUME_BASE}/{table_name}/export_date={today}/{table_name}.parquet"
-    url = f"{DB_HOST}/api/2.0/fs/files{volume_path}"
-
-    log.info(f"  Uploading to {volume_path} ({len(parquet_bytes):,} bytes)...")
-    response = requests.put(
-        url,
-        headers={
-            "Authorization": f"Bearer {DB_TOKEN}",
-            "Content-Type": "application/octet-stream",
-        },
-        data=parquet_bytes,
-        timeout=120,
-    )
-
-    if response.status_code not in (200, 201, 204):
-        raise RuntimeError(
-            f"Upload failed for {table_name}: "
-            f"HTTP {response.status_code} — {response.text}"
-        )
-    log.info(f"  ✓ {table_name} uploaded successfully")
+    return table
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 def main() -> None:
-    log.info("=== TrainingFlow Supabase → Databricks Export ===")
-    log.info(f"Target volume: {VOLUME_BASE}")
+    log.info("=== TrainingFlow Supabase → Parquet Export ===")
 
-    # Connect to Supabase via pooler (IPv4-compatible on free plan)
-    log.info("Connecting to Supabase via Supavisor pooler...")
-    conn = psycopg2.connect(SUPABASE_URL)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    log.info(f"Output directory: {OUTPUT_DIR.resolve()}")
+
+    params = parse_pooler_url(SUPABASE_URL)
+    log.info(f"Connecting to: {params['host']}:{params['port']}")
+    conn = psycopg2.connect(**params)
     conn.set_session(readonly=True, autocommit=True)
 
     errors = []
+    written = []
     for table in ALL_TABLES:
         log.info(f"Processing: {table}")
         try:
-            parquet_bytes = export_table_to_parquet(conn, table)
-            upload_to_volume(parquet_bytes, table)
+            arrow_table  = export_table(conn, table)
+            output_path  = OUTPUT_DIR / f"{table}.parquet"
+            pq.write_table(arrow_table, output_path, compression="snappy")
+            size_kb = output_path.stat().st_size // 1024
+            log.info(f"  ✓ Written → {output_path} ({size_kb} KB)")
+            written.append(str(output_path))
         except Exception as e:
             log.error(f"  ✗ {table} failed: {e}")
             errors.append((table, str(e)))
 
     conn.close()
 
+    print()
+    log.info("─── Export Summary ───")
+    log.info(f"  ✅ {len(written)} files written to {OUTPUT_DIR}/")
+    for f in written:
+        log.info(f"     {f}")
+
     if errors:
-        log.error(f"\n{len(errors)} table(s) failed:")
+        log.error(f"\n  ❌ {len(errors)} table(s) failed:")
         for table, msg in errors:
-            log.error(f"  - {table}: {msg}")
+            log.error(f"     {table}: {msg}")
         sys.exit(1)
 
-    log.info(f"\n✅ Export complete — {len(ALL_TABLES)} tables ingested")
+    print()
+    log.info("Next step: Upload the parquet_output/ folder contents to Databricks")
+    log.info("  Databricks → Catalog → [your catalog] → trainingflow_bronze schema")
+    log.info("  → raw_uploads volume → Upload button → select all .parquet files")
 
 
 if __name__ == "__main__":

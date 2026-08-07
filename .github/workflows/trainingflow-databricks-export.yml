@@ -1,4 +1,4 @@
-name: TrainingFlow — Daily Supabase → Databricks Export
+name: TrainingFlow — Export Supabase to Parquet
 
 on:
   # Run at 02:00 UTC daily (10:00 AWST / 10:00 SGT)
@@ -10,7 +10,7 @@ on:
 
 jobs:
   export:
-    name: Export Supabase → Databricks Volume
+    name: Export Supabase Tables → Parquet Artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -32,46 +32,44 @@ jobs:
       # -----------------------------------------------------------------------
       # 3. Install dependencies
       # -----------------------------------------------------------------------
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r trainingflow-analytics/ingestion/requirements.txt
 
       # -----------------------------------------------------------------------
-      # 4. Run export
+      # 4. Export Supabase tables to Parquet files
       #
-      # Secrets required (set in GitHub → Settings → Secrets → Actions):
-      #   SUPABASE_POOLER_URL   — Connection pooler URI from Supabase:
-      #                             1. Open your project dashboard
-      #                             2. Click "Connect" in the TOP navigation bar
-      #                             3. Select the "Connection pooler" tab
-      #                             4. Copy the URI and replace [YOUR-PASSWORD]
-      #                           OR: Settings → Configuration → Infrastructure
-      #
-      #   DATABRICKS_HOST       — your workspace URL
-      #                           e.g. https://adb-xxxxxxxxxxxx.xx.azuredatabricks.net
-      #
-      #   DATABRICKS_TOKEN      — Databricks Personal Access Token
-      #                           Databricks → User Settings → Developer → Access Tokens
-      #
-      #   DATABRICKS_CATALOG    — Unity Catalog catalog name (usually "workspace" on Free Edition)
+      # Secret required:
+      #   SUPABASE_POOLER_URL  — Transaction pooler URI from Supabase
+      #                          Connect button → Direct → Transaction pooler tab
       # -----------------------------------------------------------------------
-      - name: Export Supabase tables to Databricks Volume
+      - name: Export Supabase tables to Parquet
         env:
           SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
-          DATABRICKS_HOST:     ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN:    ${{ secrets.DATABRICKS_TOKEN }}
-          DATABRICKS_CATALOG:  ${{ secrets.DATABRICKS_CATALOG }}
+          OUTPUT_DIR: parquet_output
         run: |
           python trainingflow-analytics/ingestion/export_to_databricks.py
 
       # -----------------------------------------------------------------------
-      # 5. Report status
+      # 5. Upload Parquet files as a downloadable GitHub Actions artifact
+      #
+      # After this workflow completes:
+      #   GitHub → Actions → this run → scroll to "Artifacts" at the bottom
+      #   → Download "trainingflow-parquet-export"
+      #   → Unzip and upload the .parquet files to Databricks:
+      #       Catalog → trainingflow_bronze schema → raw_uploads volume → Upload
       # -----------------------------------------------------------------------
+      - name: Upload Parquet files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trainingflow-parquet-export
+          path: parquet_output/
+          retention-days: 7
+
       - name: Report success
         if: success()
-        run: echo "✅ Export completed successfully at $(date -u)"
-
-      - name: Report failure
-        if: failure()
-        run: echo "❌ Export failed — check logs above"
+        run: |
+          echo "✅ Export complete at $(date -u)"
+          echo "Download the artifact from the Actions run summary page."
+          echo "Then upload the .parquet files to Databricks Unity Catalog Volumes."

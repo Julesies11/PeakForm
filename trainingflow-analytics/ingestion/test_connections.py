@@ -96,86 +96,72 @@ def normalise_databricks_host(host: str) -> str:
 
 def test_databricks(host: str, token: str, catalog: str) -> bool:
     """
-    Verify the Databricks host + token are valid.
-    Returns True on success, False on failure.
+    Test Databricks connectivity by directly hitting the APIs we actually need:
+      1. Files API  — needed to upload Parquet to Unity Catalog Volumes
+      2. SQL Warehouses — needed for dbt to run transformations
+    Skips /api/2.0/current-user/me which is not available on Databricks Free Edition.
+    Returns True if at least the Files API responds (even 404 = volume not yet created).
     """
     log.info("─── Databricks Connection Test ───")
     host = normalise_databricks_host(host)
-    # Don't log the full host since GitHub masks it — log a truncated version
-    log.info(f"  Host prefix: {host[:30]}...")
+    log.info(f"  Host prefix: {host[:35]}...")
     log.info(f"  Catalog: {catalog}")
 
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
-        # ── Step 1: Validate token via /api/2.0/current-user/me ──
-        me_url = f"{host}/api/2.0/current-user/me"
-        log.info(f"  Trying: GET {me_url}")
-        r = requests.get(me_url, headers=headers, timeout=15)
-        log.info(f"  Response: HTTP {r.status_code}")
-        if r.text:
+        # ── Test 1: Files API (primary requirement for Parquet upload) ──
+        # 200 = volume exists, 404 = volume doesn't exist yet (both are fine),
+        # 401 = bad token, 403 = missing permissions
+        files_url = f"{host}/api/2.0/fs/files/Volumes/{catalog}/trainingflow_bronze"
+        log.info(f"  Testing Files API: GET {files_url}")
+        r = requests.get(files_url, headers=headers, timeout=15)
+        log.info(f"  Files API response: HTTP {r.status_code}")
+        if r.text.strip():
             log.info(f"  Body: {r.text[:300]}")
 
-        if r.status_code == 200:
-            user = r.json()
-            log.info(f"  ✅ Token valid — user: {user.get('userName', 'unknown')}")
-        elif r.status_code == 404:
-            # Try alternative endpoint for some Databricks editions
-            alt_url = f"{host}/api/2.0/clusters/list"
-            log.info(f"  Trying alternative: GET {alt_url}")
-            r2 = requests.get(alt_url, headers=headers, timeout=15)
-            log.info(f"  Alternative response: HTTP {r2.status_code} — {r2.text[:200]}")
-            if r2.status_code == 200:
-                log.info("  ✅ Token valid (via alternative endpoint)")
-            elif r2.status_code == 401:
-                log.error("  ❌ HTTP 401 — Token is invalid or expired")
-                log.error("  → Regenerate: Databricks → User Settings → Developer → Access Tokens")
-                return False
+        if r.status_code in (200, 404):
+            if r.status_code == 404:
+                log.info("  ✅ Files API reachable — volume doesn't exist yet (create it in Databricks first)")
+                log.info("     Databricks → Catalog → [your catalog] → Create Schema 'trainingflow_bronze'")
+                log.info("     → then Create Volume 'raw_uploads' inside that schema")
             else:
-                log.error(f"  ❌ Both endpoints returned errors.")
-                log.error(f"  → Host used: {host}")
-                log.error("  → Confirm this is your workspace base URL with no trailing path")
-                return False
+                log.info("  ✅ Files API reachable — volume exists")
         elif r.status_code == 401:
-            log.error(f"  ❌ HTTP 401 — Token is invalid or expired")
-            log.error("  → Regenerate token: Databricks → User Settings → Developer → Access Tokens")
+            log.error("  ❌ HTTP 401 — Token is invalid or expired")
+            log.error("  → Regenerate: Databricks workspace → User Settings → Developer → Access Tokens")
+            return False
+        elif r.status_code == 403:
+            log.error("  ❌ HTTP 403 — Token lacks permission to access Volumes")
+            log.error(f"  → Ensure your user has WRITE VOLUME privilege on catalog '{catalog}'")
             return False
         else:
-            log.error(f"  ❌ Unexpected HTTP {r.status_code}: {r.text[:300]}")
+            log.error(f"  ❌ Files API returned HTTP {r.status_code}: {r.text[:300]}")
+            log.error("  → If this is 'Cannot reach host', the Free Edition may block inbound REST API")
             return False
 
-        # ── Step 2: List SQL Warehouses ──
-        wh_r = requests.get(f"{host}/api/2.0/sql/warehouses", headers=headers, timeout=15)
+        # ── Test 2: SQL Warehouses (needed for dbt) ──
+        wh_url = f"{host}/api/2.0/sql/warehouses"
+        log.info(f"  Testing SQL Warehouses: GET {wh_url}")
+        wh_r = requests.get(wh_url, headers=headers, timeout=15)
+        log.info(f"  SQL Warehouses response: HTTP {wh_r.status_code}")
+
         if wh_r.status_code == 200:
             warehouses = wh_r.json().get("warehouses", [])
             if warehouses:
-                wh_id   = warehouses[0]["id"]
-                wh_name = warehouses[0]["name"]
-                wh_state = warehouses[0].get("state", "unknown")
-                log.info(f"  ✅ SQL Warehouse: '{wh_name}' (id: {wh_id}, state: {wh_state})")
+                wh = warehouses[0]
+                log.info(f"  ✅ SQL Warehouse found: '{wh['name']}' (state: {wh.get('state', '?')})")
             else:
-                log.warning("  ⚠️  No SQL Warehouses found")
-                log.warning("  → dbt needs a SQL Warehouse. Create one in Databricks → SQL → SQL Warehouses")
+                log.warning("  ⚠️  No SQL Warehouses found — create one for dbt:")
+                log.warning("     Databricks → SQL → SQL Warehouses → Create SQL Warehouse")
         else:
-            log.warning(f"  ⚠️  Could not list warehouses: HTTP {wh_r.status_code}")
-
-        # ── Step 3: Probe Files API ──
-        files_url = f"{host}/api/2.0/fs/files/Volumes/{catalog}/trainingflow_bronze"
-        files_r = requests.get(files_url, headers=headers, timeout=15)
-        if files_r.status_code in (200, 404):
-            log.info(f"  ✅ Files API reachable (HTTP {files_r.status_code} — volume may not exist yet, that's fine)")
-        elif files_r.status_code == 403:
-            log.error(f"  ❌ Files API returned 403 Forbidden")
-            log.error(f"  → Token may lack WRITE VOLUME privilege on catalog '{catalog}'")
-            return False
-        else:
-            log.warning(f"  ⚠️  Files API: HTTP {files_r.status_code} — {files_r.text[:200]}")
+            log.warning(f"  ⚠️  Could not list SQL Warehouses: HTTP {wh_r.status_code}")
 
         return True
 
     except requests.exceptions.ConnectionError as e:
-        log.error(f"  ❌ Cannot reach host: {e}")
-        log.error("  → Confirm DATABRICKS_HOST is correct and reachable from GitHub Actions")
+        log.error(f"  ❌ Cannot reach Databricks host: {e}")
+        log.error("  → Check DATABRICKS_HOST — must be https://dbc-xxx.cloud.databricks.com")
         return False
     except Exception as e:
         log.error(f"  ❌ Databricks test FAILED: {e}")
