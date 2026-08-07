@@ -1,0 +1,236 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # TrainingFlow — Supabase Ingestion to Bronze
+# MAGIC
+# MAGIC Extracts TrainingFlow data from Supabase (PostgreSQL) and loads it into
+# MAGIC Databricks Unity Catalog as Delta tables in the `trainingflow_bronze` schema.
+# MAGIC
+# MAGIC **Schedule:** Run daily via a Databricks Job.
+# MAGIC
+# MAGIC ---
+# MAGIC
+# MAGIC ## ⚠️ Free-Tier Pre-requisites — Read Before Running
+# MAGIC
+# MAGIC ### Databricks
+# MAGIC The **Databricks Free Edition** (perpetual) has **restricted outbound internet access** and
+# MAGIC cannot make external JDBC/TCP connections to Supabase. You must use one of:
+# MAGIC - ✅ **Databricks Free Trial** (14 days, \$400 credits, full networking) — recommended for initial setup
+# MAGIC - ✅ Any standard paid Databricks workspace on AWS / Azure / GCP
+# MAGIC - ❌ Databricks Free Edition — outbound blocked, will not work
+# MAGIC
+# MAGIC ### Supabase
+# MAGIC The **Supabase Free plan** does NOT provide a dedicated IPv4 address for direct connections.
+# MAGIC The direct connection string resolves to **IPv6 only** on the free tier.
+# MAGIC Databricks cluster IPs are IPv4, so the direct connection will **fail** unless you pay for the IPv4 add-on.
+# MAGIC
+# MAGIC ✅ **Solution: Use the Supavisor connection pooler URL instead.**
+# MAGIC The pooler endpoint is IPv4-compatible on all Supabase plans and works fine with dlt for daily batch loads.
+# MAGIC
+# MAGIC ### Where to find your pooler URL
+# MAGIC Supabase Dashboard → Project Settings → Database → **Connection string** → select **"Connection pooler"** tab
+# MAGIC Copy the URI that starts with `postgresql://postgres.xxxx:...@aws-0-xx-xxxx.pooler.supabase.com:6543/postgres`
+# MAGIC
+# MAGIC ---
+# MAGIC
+# MAGIC **Required Secrets** (Databricks Secret Scope: `trainingflow`):
+# MAGIC - `supabase-pooler-host` — e.g. `aws-0-ap-southeast-1.pooler.supabase.com`
+# MAGIC - `supabase-pooler-port` — `6543` (transaction mode) or `5432` (session mode)
+# MAGIC - `supabase-pooler-user` — e.g. `postgres.xxxxxxxxxxxx` (note the project ref suffix)
+# MAGIC - `supabase-db-password` — your database password (NOT the anon/service key)
+# MAGIC - `supabase-db-name` — `postgres`
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 1. Install Dependencies
+
+# COMMAND ----------
+
+%pip install "dlt[databricks,sql_database]>=0.5.0" psycopg2-binary sqlalchemy --quiet
+dbutils.library.restartPython()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2. Configuration
+
+# COMMAND ----------
+
+import dlt
+from dlt.sources.sql_database import sql_database
+
+# --- Read credentials from Databricks Secret Scope ---
+# Create scope once via CLI: databricks secrets create-scope trainingflow
+# Credentials from Databricks Secret Scope
+# Create scope once:  databricks secrets create-scope trainingflow
+# Then add each key: databricks secrets put-secret trainingflow supabase-pooler-host --string-value "..."
+DB_HOST     = dbutils.secrets.get(scope="trainingflow", key="supabase-pooler-host")
+DB_PORT     = dbutils.secrets.get(scope="trainingflow", key="supabase-pooler-port")  # 6543
+DB_USER     = dbutils.secrets.get(scope="trainingflow", key="supabase-pooler-user")  # postgres.xxxx
+DB_PASSWORD = dbutils.secrets.get(scope="trainingflow", key="supabase-db-password")
+DB_NAME     = "postgres"
+
+# Supavisor pooler connection string (IPv4-compatible — works on Supabase free plan)
+# Session mode (port 5432) preserves prepared statements; transaction mode (6543) is fine for batch reads
+SUPABASE_CONN = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Unity Catalog target schema
+BRONZE_SCHEMA = "trainingflow_bronze"
+
+print(f"Connecting via pooler: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+print(f"Target schema: workspace.{BRONZE_SCHEMA}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3. Define Table Load Configurations
+
+# COMMAND ----------
+
+# Append-only tables — new rows identified by created_at cursor
+INCREMENTAL_TABLES = [
+    {"table": "tf_workouts",       "cursor": "created_at"},
+    {"table": "tf_events",         "cursor": "created_at"},
+    {"table": "tf_event_segments", "cursor": "created_at"},
+    {"table": "tf_training_goals", "cursor": "created_at"},
+    {"table": "tf_notes",          "cursor": "created_at"},
+]
+
+# Upsert tables — merge on composite primary key
+MERGE_TABLES = [
+    {
+        "table":       "tf_daily_metrics",
+        "cursor":      "date",
+        "primary_key": ["user_id", "date"],
+    },
+]
+
+# Small reference / lookup tables — full replace each run
+REFERENCE_TABLES = [
+    "tf_sport_types",
+    "tf_workout_categories",
+    "tf_profiles",
+    "tf_garmin_sport_mapping",
+]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4. Build dlt Pipeline
+
+# COMMAND ----------
+
+pipeline = dlt.pipeline(
+    pipeline_name="trainingflow_supabase_ingestion",
+    destination="databricks",
+    dataset_name=BRONZE_SCHEMA,
+)
+
+print(f"Pipeline: {pipeline.pipeline_name}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5. Load Reference Tables (Full Replace)
+
+# COMMAND ----------
+
+print("Loading reference tables (full replace)...")
+
+source = sql_database(
+    SUPABASE_CONN,
+    schema="public",
+    table_names=REFERENCE_TABLES,
+)
+
+load_info = pipeline.run(source, write_disposition="replace")
+print(load_info)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 6. Load Incremental Tables (Append)
+
+# COMMAND ----------
+
+print("Loading incremental tables (append by created_at)...")
+
+for config in INCREMENTAL_TABLES:
+    source = sql_database(
+        SUPABASE_CONN,
+        schema="public",
+        table_names=[config["table"]],
+        incremental=dlt.sources.incremental(
+            config["cursor"],
+            initial_value="2020-01-01T00:00:00+00:00",
+        ),
+    )
+    load_info = pipeline.run(
+        source,
+        write_disposition="append",
+        table_name=config["table"],
+    )
+    print(f"  ✓ {config['table']}: {load_info.loads_ids}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7. Load Merge Tables (Upsert)
+
+# COMMAND ----------
+
+print("Loading merge tables (upsert by primary key)...")
+
+for config in MERGE_TABLES:
+    source = sql_database(
+        SUPABASE_CONN,
+        schema="public",
+        table_names=[config["table"]],
+        incremental=dlt.sources.incremental(
+            config["cursor"],
+            initial_value="2020-01-01",
+        ),
+    )
+    load_info = pipeline.run(
+        source,
+        write_disposition="merge",
+        primary_key=config["primary_key"],
+        table_name=config["table"],
+    )
+    print(f"  ✓ {config['table']}: {load_info.loads_ids}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 8. Verify — Row Counts per Bronze Table
+
+# COMMAND ----------
+
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.getOrCreate()
+
+all_tables = (
+    [c["table"] for c in INCREMENTAL_TABLES]
+    + [c["table"] for c in MERGE_TABLES]
+    + REFERENCE_TABLES
+)
+
+print(f"{'Table':<35} {'Row Count':>12}")
+print("-" * 50)
+
+for table in all_tables:
+    try:
+        count = spark.table(f"workspace.{BRONZE_SCHEMA}.{table}").count()
+        print(f"{table:<35} {count:>12,}")
+    except Exception as e:
+        print(f"{table:<35} {'ERROR':>12}  ({e})")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## ✅ Ingestion Complete
+# MAGIC
+# MAGIC All TrainingFlow tables are now loaded into `workspace.trainingflow_bronze`.
+# MAGIC
+# MAGIC **Next step:** Run the dbt job to transform Bronze → Silver → Gold.

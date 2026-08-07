@@ -1,0 +1,77 @@
+name: TrainingFlow — Daily Supabase → Databricks Export
+
+on:
+  # Run at 02:00 UTC daily (10:00 AWST / 10:00 SGT)
+  schedule:
+    - cron: "0 2 * * *"
+
+  # Allow manual trigger from the GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  export:
+    name: Export Supabase → Databricks Volume
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Checkout repo
+      # -----------------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Python
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # -----------------------------------------------------------------------
+      # 3. Install dependencies
+      # -----------------------------------------------------------------------
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r trainingflow-analytics/ingestion/requirements.txt
+
+      # -----------------------------------------------------------------------
+      # 4. Run export
+      #
+      # Secrets required (set in GitHub → Settings → Secrets → Actions):
+      #   SUPABASE_POOLER_URL   — Connection pooler URI from Supabase:
+      #                             1. Open your project dashboard
+      #                             2. Click "Connect" in the TOP navigation bar
+      #                             3. Select the "Connection pooler" tab
+      #                             4. Copy the URI and replace [YOUR-PASSWORD]
+      #                           OR: Settings → Configuration → Infrastructure
+      #
+      #   DATABRICKS_HOST       — your workspace URL
+      #                           e.g. https://adb-xxxxxxxxxxxx.xx.azuredatabricks.net
+      #
+      #   DATABRICKS_TOKEN      — Databricks Personal Access Token
+      #                           Databricks → User Settings → Developer → Access Tokens
+      #
+      #   DATABRICKS_CATALOG    — Unity Catalog catalog name (usually "workspace" on Free Edition)
+      # -----------------------------------------------------------------------
+      - name: Export Supabase tables to Databricks Volume
+        env:
+          SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
+          DATABRICKS_HOST:     ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:    ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_CATALOG:  ${{ secrets.DATABRICKS_CATALOG }}
+        run: |
+          python trainingflow-analytics/ingestion/export_to_databricks.py
+
+      # -----------------------------------------------------------------------
+      # 5. Report status
+      # -----------------------------------------------------------------------
+      - name: Report success
+        if: success()
+        run: echo "✅ Export completed successfully at $(date -u)"
+
+      - name: Report failure
+        if: failure()
+        run: echo "❌ Export failed — check logs above"
