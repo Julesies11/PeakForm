@@ -1,0 +1,36 @@
+name: TrainingFlow — Test Connections
+
+on:
+  # Manually triggered only — run this to validate secrets before the first export
+  workflow_dispatch:
+
+jobs:
+  test-connections:
+    name: Test Supabase + Databricks Connectivity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: trainingflow-analytics/ingestion/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r trainingflow-analytics/ingestion/requirements.txt
+
+      - name: Run connection tests
+        env:
+          SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
+          DATABRICKS_HOST:     ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:    ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_CATALOG:  ${{ secrets.DATABRICKS_CATALOG }}
+        run: |
+          python trainingflow-analytics/ingestion/test_connections.py
