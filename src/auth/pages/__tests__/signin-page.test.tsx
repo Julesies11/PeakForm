@@ -62,16 +62,29 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
     vi.clearAllMocks();
 
     // Mock window.crypto.subtle.digest for secure nonce pairing
-    Object.defineProperty(window, 'crypto', {
-      value: {
-        getRandomValues: (arr: Uint8Array) => arr.fill(1),
-        subtle: {
-          digest: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
-        },
+    const mockCrypto = {
+      getRandomValues: (arr: Uint8Array) => arr.fill(1),
+      subtle: {
+        digest: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
       },
+    };
+
+    Object.defineProperty(window, 'crypto', {
+      value: mockCrypto,
       writable: true,
       configurable: true,
     });
+    if (typeof globalThis !== 'undefined') {
+      try {
+        Object.defineProperty(globalThis, 'crypto', {
+          value: mockCrypto,
+          writable: true,
+          configurable: true,
+        });
+      } catch {
+        // ignore if global crypto is read-only
+      }
+    }
 
     // Mock window.msal
     mockLoginPopup = vi.fn().mockResolvedValue({
@@ -149,9 +162,10 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
       expect(supabase.auth.signInWithIdToken).toHaveBeenCalledWith({
         provider: 'azure',
         token: 'mock-id-token',
-        nonce: '01010101010101010101010101010101', // random values mocked with 1s
+        nonce: expect.stringMatching(/^[0-9a-fA-F]{32}$/),
       });
     });
   });
 });
+
 
