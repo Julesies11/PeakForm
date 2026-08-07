@@ -1,4 +1,4 @@
-name: TrainingFlow — Export Supabase to Parquet
+name: TrainingFlow — Export Supabase to Databricks
 
 on:
   # Run at 02:00 UTC daily (10:00 AWST / 10:00 SGT)
@@ -10,7 +10,7 @@ on:
 
 jobs:
   export:
-    name: Export Supabase Tables → Parquet Artifacts
+    name: Export Supabase Tables → Databricks Volume & Artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -38,29 +38,28 @@ jobs:
           pip install -r trainingflow-analytics/ingestion/requirements.txt
 
       # -----------------------------------------------------------------------
-      # 4. Export Supabase tables to Parquet files
+      # 4. Export Supabase tables to Parquet & Upload to Databricks Volume
       #
-      # Secret required:
+      # Secrets required:
       #   SUPABASE_POOLER_URL  — Transaction pooler URI from Supabase
-      #                          Connect button → Direct → Transaction pooler tab
+      #   DATABRICKS_HOST      — Base workspace URL, e.g. https://dbc-d33d5a60-72fc.cloud.databricks.com
+      #   DATABRICKS_TOKEN     — Databricks Personal Access Token
+      #   DATABRICKS_CATALOG   — Unity Catalog catalog name (default: "workspace")
       # -----------------------------------------------------------------------
-      - name: Export Supabase tables to Parquet
+      - name: Export Supabase tables to Databricks
         env:
           SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
-          OUTPUT_DIR: parquet_output
+          DATABRICKS_HOST:     ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN:    ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_CATALOG:  ${{ secrets.DATABRICKS_CATALOG }}
+          OUTPUT_DIR:          parquet_output
         run: |
           python trainingflow-analytics/ingestion/export_to_databricks.py
 
       # -----------------------------------------------------------------------
-      # 5. Upload Parquet files as a downloadable GitHub Actions artifact
-      #
-      # After this workflow completes:
-      #   GitHub → Actions → this run → scroll to "Artifacts" at the bottom
-      #   → Download "trainingflow-parquet-export"
-      #   → Unzip and upload the .parquet files to Databricks:
-      #       Catalog → trainingflow_bronze schema → raw_uploads volume → Upload
+      # 5. Upload Parquet files as a downloadable GitHub Actions artifact (backup)
       # -----------------------------------------------------------------------
-      - name: Upload Parquet files as artifact
+      - name: Upload Parquet files as artifact backup
         uses: actions/upload-artifact@v4
         with:
           name: trainingflow-parquet-export
@@ -70,6 +69,4 @@ jobs:
       - name: Report success
         if: success()
         run: |
-          echo "✅ Export complete at $(date -u)"
-          echo "Download the artifact from the Actions run summary page."
-          echo "Then upload the .parquet files to Databricks Unity Catalog Volumes."
+          echo "✅ Export & Databricks upload complete at $(date -u)"

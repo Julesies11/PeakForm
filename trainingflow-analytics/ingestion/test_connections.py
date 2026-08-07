@@ -111,9 +111,12 @@ def test_databricks(host: str, token: str, catalog: str) -> bool:
 
     try:
         # ── Test 1: Files API (primary requirement for Parquet upload) ──
-        # 200 = volume exists, 404 = volume doesn't exist yet (both are fine),
+        # Path format: /Volumes/<catalog>/<schema>/<volume>/
+        # 200 = volume exists and is readable
+        # 404 = volume doesn't exist yet — needs to be created in Databricks UI
+        # 400 = path format error — proves API + token work, just path issue
         # 401 = bad token, 403 = missing permissions
-        files_url = f"{host}/api/2.0/fs/files/Volumes/{catalog}/trainingflow_bronze"
+        files_url = f"{host}/api/2.0/fs/files/Volumes/{catalog}/trainingflow_bronze/raw_uploads"
         log.info(f"  Testing Files API: GET {files_url}")
         r = requests.get(files_url, headers=headers, timeout=15)
         log.info(f"  Files API response: HTTP {r.status_code}")
@@ -122,11 +125,19 @@ def test_databricks(host: str, token: str, catalog: str) -> bool:
 
         if r.status_code in (200, 404):
             if r.status_code == 404:
-                log.info("  ✅ Files API reachable — volume doesn't exist yet (create it in Databricks first)")
-                log.info("     Databricks → Catalog → [your catalog] → Create Schema 'trainingflow_bronze'")
-                log.info("     → then Create Volume 'raw_uploads' inside that schema")
+                log.info("  ✅ Files API reachable — volume not found (needs to be created):")
+                log.info("     Databricks → Catalog → [your catalog]")
+                log.info("     → Create Schema: 'trainingflow_bronze'")
+                log.info("     → Inside that schema, Create Volume: 'raw_uploads'")
             else:
-                log.info("  ✅ Files API reachable — volume exists")
+                log.info("  ✅ Files API reachable — volume exists and is ready")
+        elif r.status_code == 400:
+            # 400 = path/volume issue — but API and token ARE working
+            log.info("  ✅ Files API IS reachable and token is valid (HTTP 400 = path issue only)")
+            log.info("  → The schema or volume may not exist yet. Create them in Databricks:")
+            log.info("     Databricks → Catalog → [your catalog]")
+            log.info("     → Create Schema: 'trainingflow_bronze'")
+            log.info("     → Inside that schema, Create Volume: 'raw_uploads'")
         elif r.status_code == 401:
             log.error("  ❌ HTTP 401 — Token is invalid or expired")
             log.error("  → Regenerate: Databricks workspace → User Settings → Developer → Access Tokens")
@@ -137,7 +148,6 @@ def test_databricks(host: str, token: str, catalog: str) -> bool:
             return False
         else:
             log.error(f"  ❌ Files API returned HTTP {r.status_code}: {r.text[:300]}")
-            log.error("  → If this is 'Cannot reach host', the Free Edition may block inbound REST API")
             return False
 
         # ── Test 2: SQL Warehouses (needed for dbt) ──
