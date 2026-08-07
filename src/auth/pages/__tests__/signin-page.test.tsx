@@ -61,7 +61,7 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock window.crypto.subtle.digest for secure nonce pairing
+    // Mock window.crypto and window.msal using vi.stubGlobal for clean global stubbing
     const mockCrypto = {
       getRandomValues: (arr: Uint8Array) => arr.fill(1),
       subtle: {
@@ -69,24 +69,8 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
       },
     };
 
-    Object.defineProperty(window, 'crypto', {
-      value: mockCrypto,
-      writable: true,
-      configurable: true,
-    });
-    if (typeof globalThis !== 'undefined') {
-      try {
-        Object.defineProperty(globalThis, 'crypto', {
-          value: mockCrypto,
-          writable: true,
-          configurable: true,
-        });
-      } catch {
-        // ignore if global crypto is read-only
-      }
-    }
+    vi.stubGlobal('crypto', mockCrypto);
 
-    // Mock window.msal
     mockLoginPopup = vi.fn().mockResolvedValue({
       idToken: 'mock-id-token',
       idTokenClaims: { nonce: 'mocked-hashed-nonce' },
@@ -99,9 +83,10 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
       return this;
     });
 
-    (window as any).msal = {
+    vi.stubGlobal('msal', {
       PublicClientApplication: mockPublicClientApplication,
-    };
+    });
+
 
     // Configure spy on Supabase auth
     vi.spyOn(supabase.auth, 'signInWithIdToken').mockResolvedValue({

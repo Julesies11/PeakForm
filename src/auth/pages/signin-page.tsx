@@ -249,12 +249,32 @@ export function SignInPage() {
 
   // Helper to generate a raw random nonce and its SHA-256 hex hash for OIDC verification
   const generateNoncePair = async () => {
-    const raw = Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
+    const cryptoObj =
+      typeof window !== 'undefined' && window.crypto
+        ? window.crypto
+        : globalThis.crypto;
+
+    if (!cryptoObj?.getRandomValues) {
+      throw new Error(
+        'Cryptographically secure random number generator (crypto.getRandomValues) is required for secure authentication.',
+      );
+    }
+
+    const rawBytes = new Uint8Array(16);
+    cryptoObj.getRandomValues(rawBytes);
+
+    const raw = Array.from(rawBytes)
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
 
+    if (!cryptoObj.subtle?.digest) {
+      throw new Error(
+        'SubtleCrypto SHA-256 digest is required for OIDC nonce hashing.',
+      );
+    }
+
     const msgBuffer = new TextEncoder().encode(raw);
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashBuffer = await cryptoObj.subtle.digest('SHA-256', msgBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashed = hashArray
       .map((b) => b.toString(16).padStart(2, '0'))
@@ -262,6 +282,8 @@ export function SignInPage() {
 
     return { raw, hashed };
   };
+
+
 
   // Handle Microsoft Sign In with MSAL.js OIDC
   const handleMicrosoftSignIn = async () => {
