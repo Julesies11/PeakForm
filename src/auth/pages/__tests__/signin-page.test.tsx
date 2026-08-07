@@ -139,6 +139,12 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
     const microsoftButton = screen.getByRole('button', { name: /microsoft/i });
     fireEvent.click(microsoftButton);
 
+    // wait for MSAL popup to be invoked (ensures the async login flow has started/completed)
+    await waitFor(() => {
+      expect(mockLoginPopup).toHaveBeenCalled();
+    });
+
+    // now assert the Supabase exchange is performed with the expected raw nonce
     await waitFor(() => {
       expect(supabase.auth.signInWithIdToken).toHaveBeenCalledWith({
         provider: 'azure',
@@ -148,3 +154,4 @@ describe('SignInPage - OIDC Login Integration Tests', () => {
     });
   });
 });
+
