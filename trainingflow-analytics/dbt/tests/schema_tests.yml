@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: silver_workouts
+    description: "Cleaned and joined workout records"
+    columns:
+      - name: workout_id
+        tests:
+          - unique
+          - not_null
+      - name: user_id
+        tests:
+          - not_null
+      - name: workout_date
+        tests:
+          - not_null
+
+  - name: silver_daily_metrics
+    description: "Daily PMC training load metrics"
+    columns:
+      - name: metric_id
+        tests:
+          - unique
+          - not_null
+      - name: user_id
+        tests:
+          - not_null
+      - name: metric_date
+        tests:
+          - not_null
+
+  - name: silver_events
+    description: "Events and associated race segments"
+    columns:
+      - name: event_id
+        tests:
+          - not_null
+
+  - name: silver_training_goals
+    description: "Periodized training target goals"
+    columns:
+      - name: goal_id
+        tests:
+          - unique
+          - not_null

@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: raw_parquet
+    catalog: workspace
+    schema: trainingflow_bronze
+    description: "Raw Parquet files uploaded to Unity Catalog Volume raw_uploads"
+    tables:
+      - name: tf_workouts
+      - name: tf_daily_metrics
+      - name: tf_events
+      - name: tf_event_segments
+      - name: tf_training_goals
+      - name: tf_sport_types
+      - name: tf_workout_categories
+      - name: tf_profiles
+      - name: tf_notes
