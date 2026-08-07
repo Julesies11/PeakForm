@@ -16,6 +16,7 @@ Environment variables (set as GitHub Secrets or local env):
 import os
 import io
 import sys
+import json
 import logging
 from datetime import date, datetime
 from pathlib import Path
@@ -88,6 +89,17 @@ def parse_pooler_url(url: str) -> dict:
     }
 
 
+def format_val(val):
+    """Safely format database values for PyArrow Parquet export."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return json.dumps(val)
+    if isinstance(val, (date, datetime)):
+        return str(val)
+    return val
+
+
 def export_table(conn, table_name: str) -> pa.Table:
     """Query a table and return a PyArrow table."""
     log.info(f"  Querying public.{table_name}...")
@@ -104,7 +116,7 @@ def export_table(conn, table_name: str) -> pa.Table:
     columns: dict = {col: [] for col in col_names}
     for row in rows:
         for col, val in zip(col_names, row):
-            columns[col].append(str(val) if isinstance(val, (date, datetime)) else val)
+            columns[col].append(format_val(val))
 
     table = pa.Table.from_pydict(columns)
     log.info(f"  {table_name}: {len(rows):,} rows, {len(col_names)} columns")
