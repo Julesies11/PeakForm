@@ -1,5 +1,8 @@
 -- models/bronze/bronze_tf_workouts.sql
-{{ config(materialized='table') }}
+{{ config(
+    materialized='table',
+    pre_hook="DROP TABLE IF EXISTS workspace.trainingflow_bronze.bronze_tf_workouts"
+) }}
 
 SELECT
     CAST(id AS STRING) AS id,
