@@ -1,5 +1,8 @@
 -- models/silver/silver_workouts.sql
-{{ config(materialized='table') }}
+{{ config(
+    materialized='table',
+    pre_hook="DROP TABLE IF EXISTS workspace.trainingflow_silver.silver_workouts"
+) }}
 
 WITH workouts AS (
     SELECT * FROM {{ ref('bronze_tf_workouts') }}
