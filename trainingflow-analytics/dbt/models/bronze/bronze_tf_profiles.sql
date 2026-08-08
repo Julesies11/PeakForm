@@ -3,8 +3,8 @@
 
 SELECT
     CAST(id AS STRING) AS id,
-    theme,
-    role,
-    workout_type_options,
-    updated_at
-FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_profiles.parquet', format => 'parquet')
+    CAST(theme AS STRING) AS theme,
+    CAST(role AS STRING) AS role,
+    CAST(workout_type_options AS STRING) AS workout_type_options,
+    CAST(updated_at AS STRING) AS updated_at
+FROM parquet.`/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_profiles.parquet`

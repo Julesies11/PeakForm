@@ -3,14 +3,14 @@
 
 SELECT
     CAST(id AS STRING) AS id,
-    name,
-    description,
+    CAST(name AS STRING) AS name,
+    CAST(description AS STRING) AS description,
     TRY_CAST(pace_relevant AS BOOLEAN) AS pace_relevant,
-    pace_unit,
-    distance_unit,
-    effort1_label, effort1_hex,
-    effort2_label, effort2_hex,
-    effort3_label, effort3_hex,
-    effort4_label, effort4_hex,
-    created_at
-FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_sport_types.parquet', format => 'parquet')
+    CAST(pace_unit AS STRING) AS pace_unit,
+    CAST(distance_unit AS STRING) AS distance_unit,
+    CAST(effort1_label AS STRING) AS effort1_label, CAST(effort1_hex AS STRING) AS effort1_hex,
+    CAST(effort2_label AS STRING) AS effort2_label, CAST(effort2_hex AS STRING) AS effort2_hex,
+    CAST(effort3_label AS STRING) AS effort3_label, CAST(effort3_hex AS STRING) AS effort3_hex,
+    CAST(effort4_label AS STRING) AS effort4_label, CAST(effort4_hex AS STRING) AS effort4_hex,
+    CAST(created_at AS STRING) AS created_at
+FROM parquet.`/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_sport_types.parquet`

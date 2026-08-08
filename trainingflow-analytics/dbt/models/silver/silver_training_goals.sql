@@ -26,4 +26,4 @@ SELECT
     END AS goal_status,
     g.created_at
 FROM goals g
-LEFT JOIN sports s ON g.sport_type_id = s.id
+LEFT JOIN sports s ON CAST(g.sport_type_id AS STRING) = CAST(s.id AS STRING)

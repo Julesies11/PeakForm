@@ -9,5 +9,5 @@ SELECT
     TRY_CAST(ctl AS DOUBLE) AS ctl,
     TRY_CAST(atl AS DOUBLE) AS atl,
     TRY_CAST(tsb AS DOUBLE) AS tsb,
-    created_at
-FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_daily_metrics.parquet', format => 'parquet')
+    CAST(created_at AS STRING) AS created_at
+FROM parquet.`/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_daily_metrics.parquet`

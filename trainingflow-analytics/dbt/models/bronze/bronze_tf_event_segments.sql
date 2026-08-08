@@ -9,5 +9,5 @@ SELECT
     TRY_CAST(planned_distance_kilometers AS DOUBLE) AS planned_distance_kilometers,
     TRY_CAST(effort_level AS INT) AS effort_level,
     TRY_CAST(segment_order AS INT) AS segment_order,
-    created_at
-FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_event_segments.parquet', format => 'parquet')
+    CAST(created_at AS STRING) AS created_at
+FROM parquet.`/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_event_segments.parquet`
