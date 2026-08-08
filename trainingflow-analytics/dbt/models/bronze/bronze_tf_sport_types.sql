@@ -2,7 +2,7 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
+    CAST(id AS STRING) AS id,
     name,
     description,
     TRY_CAST(pace_relevant AS BOOLEAN) AS pace_relevant,

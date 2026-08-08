@@ -2,8 +2,8 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
-    user_id,
+    CAST(id AS STRING) AS id,
+    CAST(user_id AS STRING) AS user_id,
     TRY_CAST(date AS DATE) AS date,
     title,
     description,
@@ -20,7 +20,7 @@ SELECT
     TRY_CAST(max_power AS INT) AS max_power,
     TRY_CAST(normalized_power AS INT) AS normalized_power,
     TRY_CAST(calories AS INT) AS calories,
-    sport_type_id,
-    category_id,
+    CAST(sport_type_id AS STRING) AS sport_type_id,
+    CAST(category_id AS STRING) AS category_id,
     created_at
 FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_workouts.parquet', format => 'parquet')

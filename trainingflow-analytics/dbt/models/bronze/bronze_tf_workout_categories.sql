@@ -2,7 +2,7 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
+    CAST(id AS STRING) AS id,
     name,
     color,
     TRY_CAST(is_system AS BOOLEAN) AS is_system,

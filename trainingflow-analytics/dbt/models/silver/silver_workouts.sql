@@ -69,5 +69,5 @@ SELECT
 
     w.created_at
 FROM workouts w
-LEFT JOIN sports s ON w.sport_type_id = s.id
-LEFT JOIN categories c ON w.category_id = c.id
+LEFT JOIN sports s ON CAST(w.sport_type_id AS STRING) = CAST(s.id AS STRING)
+LEFT JOIN categories c ON CAST(w.category_id AS STRING) = CAST(c.id AS STRING)
