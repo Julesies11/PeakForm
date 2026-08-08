@@ -2,10 +2,10 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
-    user_id,
-    sport_type_id,
-    event_id,
+    CAST(id AS STRING) AS id,
+    CAST(user_id AS STRING) AS user_id,
+    CAST(sport_type_id AS STRING) AS sport_type_id,
+    CAST(event_id AS STRING) AS event_id,
     metric,
     TRY_CAST(target_value AS DOUBLE) AS target_value,
     period,

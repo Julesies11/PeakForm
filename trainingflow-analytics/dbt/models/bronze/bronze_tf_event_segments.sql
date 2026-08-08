@@ -2,9 +2,9 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
-    event_id,
-    sport_type_id,
+    CAST(id AS STRING) AS id,
+    CAST(event_id AS STRING) AS event_id,
+    CAST(sport_type_id AS STRING) AS sport_type_id,
     TRY_CAST(planned_duration_minutes AS INT) AS planned_duration_minutes,
     TRY_CAST(planned_distance_kilometers AS DOUBLE) AS planned_distance_kilometers,
     TRY_CAST(effort_level AS INT) AS effort_level,

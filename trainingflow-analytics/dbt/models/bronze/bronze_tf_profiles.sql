@@ -2,7 +2,7 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
+    CAST(id AS STRING) AS id,
     theme,
     role,
     workout_type_options,

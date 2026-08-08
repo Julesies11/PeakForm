@@ -2,8 +2,8 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
-    user_id,
+    CAST(id AS STRING) AS id,
+    CAST(user_id AS STRING) AS user_id,
     TRY_CAST(date AS DATE) AS date,
     TRY_CAST(tss AS INT) AS tss,
     TRY_CAST(ctl AS DOUBLE) AS ctl,
