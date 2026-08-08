@@ -40,8 +40,8 @@ SELECT
     ) AS progress_percentage
 FROM goals g
 LEFT JOIN workouts w 
-    ON g.user_id = w.user_id 
-   AND g.sport_type_id = w.sport_type_id
+    ON CAST(g.user_id AS STRING) = CAST(w.user_id AS STRING)
+   AND CAST(g.sport_type_id AS STRING) = CAST(w.sport_type_id AS STRING)
    AND w.workout_date BETWEEN g.start_date AND g.end_date
 GROUP BY 
     g.goal_id, g.user_id, g.sport_name, g.metric, g.target_value, 

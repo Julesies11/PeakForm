@@ -32,5 +32,5 @@ SELECT
     END AS event_status,
     e.created_at
 FROM events e
-LEFT JOIN segments es ON e.id = es.event_id
-LEFT JOIN sports s ON es.sport_type_id = s.id
+LEFT JOIN segments es ON CAST(e.id AS STRING) = CAST(es.event_id AS STRING)
+LEFT JOIN sports s ON CAST(es.sport_type_id AS STRING) = CAST(s.id AS STRING)

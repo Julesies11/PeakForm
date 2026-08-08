@@ -19,6 +19,8 @@ SELECT
     mt.total_month_minutes,
     ROUND((SUM(w.actual_duration_minutes) / NULLIF(mt.total_month_minutes, 0)) * 100, 2) AS percentage_of_total_time
 FROM {{ ref('silver_workouts') }} w
-JOIN monthly_totals mt ON w.user_id = mt.user_id AND w.month_start_date = mt.month_start_date
+JOIN monthly_totals mt 
+    ON CAST(w.user_id AS STRING) = CAST(mt.user_id AS STRING) 
+   AND w.month_start_date = mt.month_start_date
 GROUP BY w.user_id, w.month_start_date, w.effort_level, w.effort_label, mt.total_month_minutes
 ORDER BY w.month_start_date DESC, w.effort_level ASC

@@ -2,9 +2,9 @@
 {{ config(materialized='table') }}
 
 SELECT
-    id,
-    name,
-    color,
+    CAST(id AS STRING) AS id,
+    CAST(name AS STRING) AS name,
+    CAST(color AS STRING) AS color,
     TRY_CAST(is_system AS BOOLEAN) AS is_system,
-    created_at
-FROM read_files('/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_workout_categories.parquet', format => 'parquet')
+    CAST(created_at AS STRING) AS created_at
+FROM parquet.`/Volumes/workspace/trainingflow_bronze/raw_uploads/tf_workout_categories.parquet`
