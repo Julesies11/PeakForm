@@ -1,9 +1,9 @@
 name: TrainingFlow — Export Supabase to Databricks
 
 on:
-  # Run at 02:00 UTC daily (10:00 AWST / 10:00 SGT)
+  # Run at 11:30 UTC daily (19:30 AWST / 7:30 PM Perth)
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "30 11 * * *"
 
   # Allow manual trigger from the GitHub Actions tab
   workflow_dispatch:
@@ -15,37 +15,19 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # -----------------------------------------------------------------------
-      # 1. Checkout repo
-      # -----------------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------------------------------------
-      # 2. Set up Python
-      # -----------------------------------------------------------------------
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # -----------------------------------------------------------------------
-      # 3. Install dependencies
-      # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r trainingflow-analytics/ingestion/requirements.txt
 
-      # -----------------------------------------------------------------------
-      # 4. Export Supabase tables to Parquet & Upload to Databricks Volume
-      #
-      # Secrets required:
-      #   SUPABASE_POOLER_URL  — Transaction pooler URI from Supabase
-      #   DATABRICKS_HOST      — Base workspace URL, e.g. https://dbc-d33d5a60-72fc.cloud.databricks.com
-      #   DATABRICKS_TOKEN     — Databricks Personal Access Token
-      #   DATABRICKS_CATALOG   — Unity Catalog catalog name (default: "workspace")
-      # -----------------------------------------------------------------------
       - name: Export Supabase tables to Databricks
         env:
           SUPABASE_POOLER_URL: ${{ secrets.SUPABASE_POOLER_URL }}
@@ -56,9 +38,6 @@ jobs:
         run: |
           python trainingflow-analytics/ingestion/export_to_databricks.py
 
-      # -----------------------------------------------------------------------
-      # 5. Upload Parquet files as a downloadable GitHub Actions artifact (backup)
-      # -----------------------------------------------------------------------
       - name: Upload Parquet files as artifact backup
         uses: actions/upload-artifact@v4
         with:
