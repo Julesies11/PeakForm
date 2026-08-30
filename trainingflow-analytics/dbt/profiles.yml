@@ -9,3 +9,7 @@ trainingflow_databricks:
       http_path: "{{ env_var('DATABRICKS_HTTP_PATH', '') }}"
       token: "{{ env_var('DATABRICKS_TOKEN', '') }}"
       threads: 4
+    local:
+      type: duckdb
+      path: 'trainingflow_local.duckdb'
+      threads: 4

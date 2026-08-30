@@ -16,6 +16,7 @@ import {
   getTargetValueForBucket,
 } from '@/services/training/goals.utils';
 import { isMetersDistance } from '@/services/training/pace-utils';
+import { getUnfulfilledEventSegments } from '@/services/training/volume-dedup.utils';
 
 type ProgressMetric = 'distance' | 'duration';
 type ViewType = 'week' | 'month';
@@ -141,8 +142,11 @@ export const VolumeChart = memo(function VolumeChart({
       while (tempDate < bucketEnd) {
         const dateStr = format(tempDate, 'yyyy-MM-dd');
 
+        const dayWorkouts = workoutsByDate.get(dateStr) || [];
+        const dayEvents = eventsByDate.get(dateStr) || [];
+
         // Accumulate workouts
-        (workoutsByDate.get(dateStr) || []).forEach((w) => {
+        dayWorkouts.forEach((w) => {
           // FIX: Compare by ID if a specific sport is selected
           if (selectedSportId && w.sportTypeId !== selectedSportId) return;
 
@@ -159,25 +163,27 @@ export const VolumeChart = memo(function VolumeChart({
           }
         });
 
-        // Accumulate events & segments
-        (eventsByDate.get(dateStr) || []).forEach((e) => {
-          bucketEvents.push(e);
-          (e.segments || []).forEach((seg) => {
-            if (selectedSportId && seg.sportTypeId !== selectedSportId) return;
+        // Accumulate events & unfulfilled segments
+        dayEvents.forEach((e) => bucketEvents.push(e));
 
-            if (metric === 'distance') {
-              const distKm = seg.plannedDistanceKilometers || 0;
-              const sportRec = sportMap.get(seg.sportTypeId);
-              const dist =
-                sportRec &&
-                isMetersDistance(sportRec.distanceUnit, sportRec.name)
-                  ? distKm * 1000
-                  : distKm;
-              val += dist;
-            } else {
-              val += seg.plannedDurationMinutes || 0;
-            }
-          });
+        const unfulfilledSegments = getUnfulfilledEventSegments(
+          dayEvents,
+          dayWorkouts,
+        );
+        unfulfilledSegments.forEach((seg) => {
+          if (selectedSportId && seg.sportTypeId !== selectedSportId) return;
+
+          if (metric === 'distance') {
+            const distKm = seg.plannedDistanceKilometers || 0;
+            const sportRec = sportMap.get(seg.sportTypeId);
+            const dist =
+              sportRec && isMetersDistance(sportRec.distanceUnit, sportRec.name)
+                ? distKm * 1000
+                : distKm;
+            val += dist;
+          } else {
+            val += seg.plannedDurationMinutes || 0;
+          }
         });
 
         // Accumulate notes

@@ -283,8 +283,6 @@ export function SignInPage() {
     return { raw, hashed };
   };
 
-
-
   // Handle Microsoft Sign In with MSAL.js OIDC
   const handleMicrosoftSignIn = async () => {
     try {

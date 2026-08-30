@@ -19,6 +19,7 @@ import {
   isPaceRelevant,
 } from '@/services/training/pace-utils';
 import { getSportIcon } from '@/services/training/sport-icons';
+import { getUnfulfilledEventSegments } from '@/services/training/volume-dedup.utils';
 import { CalendarDay } from './calendar-day';
 
 interface CalendarGridProps {
@@ -85,53 +86,52 @@ export const CalendarGrid = React.memo(
       week.forEach((date) => {
         const dateStr = formatDateToLocalISO(date);
 
+        const dayWorkouts = workouts.filter((w) => w.date === dateStr);
+        const dayEvents = events.filter((e) => e.date === dateStr);
+
         // Add workout totals
-        workouts
-          .filter((w) => w.date === dateStr)
-          .forEach((w) => {
-            const dur = w.plannedDurationMinutes || 0;
-            let dist = w.plannedDistanceKilometers || 0;
-            const stId = w.sportTypeId || 'unknown';
-            const st = sportMap.get(stId);
+        dayWorkouts.forEach((w) => {
+          const dur = w.plannedDurationMinutes || 0;
+          let dist = w.plannedDistanceKilometers || 0;
+          const stId = w.sportTypeId || 'unknown';
+          const st = sportMap.get(stId);
 
-            if (st && isMetersDistance(st.distanceUnit)) {
-              dist = dist * 1000;
-            }
+          if (st && isMetersDistance(st.distanceUnit)) {
+            dist = dist * 1000;
+          }
 
-            if (!sportTotals[stId])
-              sportTotals[stId] = { distance: 0, duration: 0 };
-            sportTotals[stId].duration += dur;
-            sportTotals[stId].distance += dist;
-            weekTotals.duration += dur;
-            if (isPaceRelevant(!!st?.paceRelevant, st?.paceUnit))
-              weekTotals.distance += dist;
-          });
+          if (!sportTotals[stId])
+            sportTotals[stId] = { distance: 0, duration: 0 };
+          sportTotals[stId].duration += dur;
+          sportTotals[stId].distance += dist;
+          weekTotals.duration += dur;
+          if (isPaceRelevant(!!st?.paceRelevant, st?.paceUnit))
+            weekTotals.distance += dist;
+        });
 
-        // Add event segment totals
-        events
-          .filter((e) => e.date === dateStr)
-          .forEach((e) => {
-            if (e.segments && e.segments.length > 0) {
-              e.segments.forEach((seg) => {
-                const dur = seg.plannedDurationMinutes || 0;
-                let dist = seg.plannedDistanceKilometers || 0;
-                const stId = seg.sportTypeId || 'unknown';
-                const st = sportMap.get(stId);
+        // Add unfulfilled event segment totals (skips segments that already have a workout for that sport on date)
+        const unfulfilledSegments = getUnfulfilledEventSegments(
+          dayEvents,
+          dayWorkouts,
+        );
+        unfulfilledSegments.forEach((seg) => {
+          const dur = seg.plannedDurationMinutes || 0;
+          let dist = seg.plannedDistanceKilometers || 0;
+          const stId = seg.sportTypeId || 'unknown';
+          const st = sportMap.get(stId);
 
-                if (st && isMetersDistance(st.distanceUnit, st.name)) {
-                  dist = dist * 1000;
-                }
+          if (st && isMetersDistance(st.distanceUnit, st.name)) {
+            dist = dist * 1000;
+          }
 
-                if (!sportTotals[stId])
-                  sportTotals[stId] = { distance: 0, duration: 0 };
-                sportTotals[stId].duration += dur;
-                sportTotals[stId].distance += dist;
-                weekTotals.duration += dur;
-                if (isPaceRelevant(!!st?.paceRelevant, st?.paceUnit))
-                  weekTotals.distance += dist;
-              });
-            }
-          });
+          if (!sportTotals[stId])
+            sportTotals[stId] = { distance: 0, duration: 0 };
+          sportTotals[stId].duration += dur;
+          sportTotals[stId].distance += dist;
+          weekTotals.duration += dur;
+          if (isPaceRelevant(!!st?.paceRelevant, st?.paceUnit))
+            weekTotals.distance += dist;
+        });
       });
 
       const weekStart = week[0];

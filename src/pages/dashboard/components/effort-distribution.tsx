@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
 import { parseISO } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { Event, Workout } from '@/types/training';
+import { Event, EventSegment, Workout } from '@/types/training';
+import { getUnfulfilledEventSegments } from '@/services/training/volume-dedup.utils';
 
 type ViewType = 'week' | 'month';
 
@@ -58,17 +59,35 @@ export const EffortDistribution = memo(function EffortDistribution({
       return d >= start && d < end;
     });
 
+    const workoutsByDate = new Map<string, Workout[]>();
+    filteredWorkouts.forEach((w) => {
+      const list = workoutsByDate.get(w.date) || [];
+      list.push(w);
+      workoutsByDate.set(w.date, list);
+    });
+
+    const eventsByDate = new Map<string, Event[]>();
+    filteredEvents.forEach((e) => {
+      const list = eventsByDate.get(e.date) || [];
+      list.push(e);
+      eventsByDate.set(e.date, list);
+    });
+
+    const unfulfilledSegments: EventSegment[] = [];
+    eventsByDate.forEach((dayEvents, dateStr) => {
+      const dayWorkouts = workoutsByDate.get(dateStr) || [];
+      unfulfilledSegments.push(
+        ...getUnfulfilledEventSegments(dayEvents, dayWorkouts),
+      );
+    });
+
     let totalDuration = filteredWorkouts.reduce((sum, w) => {
       const dur = w.plannedDurationMinutes || 0;
       return sum + dur;
     }, 0);
 
-    filteredEvents.forEach((event) => {
-      if (event.segments && event.segments.length > 0) {
-        event.segments.forEach((seg) => {
-          totalDuration += seg.plannedDurationMinutes || 0;
-        });
-      }
+    unfulfilledSegments.forEach((seg) => {
+      totalDuration += seg.plannedDurationMinutes || 0;
     });
 
     totalDuration = totalDuration || 1;
@@ -81,12 +100,10 @@ export const EffortDistribution = memo(function EffortDistribution({
           .reduce((sum, w) => sum + (w.plannedDurationMinutes || 0), 0);
 
         let eventLevelDuration = 0;
-        filteredEvents.forEach((event) => {
-          event.segments?.forEach((seg) => {
-            if (seg.effortLevel === level) {
-              eventLevelDuration += seg.plannedDurationMinutes || 0;
-            }
-          });
+        unfulfilledSegments.forEach((seg) => {
+          if (seg.effortLevel === level) {
+            eventLevelDuration += seg.plannedDurationMinutes || 0;
+          }
         });
 
         const totalLevelDuration = levelDuration + eventLevelDuration;

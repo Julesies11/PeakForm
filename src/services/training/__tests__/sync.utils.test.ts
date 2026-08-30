@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { Workout } from '@/types/training';
+import { Event, Workout } from '@/types/training';
 import {
   GarminSportMapping,
   SportTypeRecord,
@@ -269,11 +269,250 @@ Running,2026-05-10 10:11:03,FALSE,Perth Running,2.99,201,00:16:43,118,134,1.8,16
     ];
 
     const synced = applySmartSync(incoming, mockExisting);
-    // Should match 'dur-match-but-dist-off' because duration diff (0) is prioritized
-    // over distance diff (Run A dist diff is 5, Run B dist diff is 15).
-    // Our score is (durDiff * 100) + distDiff.
-    // Pair A: (30 * 100) + 5 = 3005
-    // Pair B: (0 * 100) + 15 = 15
     expect(synced[0].workout?.id).toBe('dur-match-but-dist-off');
+  });
+
+  it('WARMUP DISAMBIGUATION: Matches main activity closest in distance/time instead of warmup run', () => {
+    const mockExisting: Workout[] = [
+      {
+        id: 'planned-10k-run',
+        date: '2026-06-01',
+        sportTypeId: runSportId,
+        title: 'Target 10km Tempo Run',
+        description: '10km tempo effort',
+        plannedDurationMinutes: 50,
+        plannedDistanceKilometers: 10,
+        effortLevel: 3,
+        isKeyWorkout: true,
+        intervals: [],
+      },
+    ];
+
+    const incoming: ProcessedImportRow[] = [
+      {
+        row: { date: '2026-06-01', title: 'Warmup Run' },
+        workout: {
+          date: '2026-06-01',
+          sportTypeId: runSportId,
+          title: 'Warmup Run',
+          plannedDurationMinutes: 10,
+          plannedDistanceKilometers: 1.5,
+        },
+        errors: [],
+        isValid: true,
+      },
+      {
+        row: { date: '2026-06-01', title: 'Main 10k Run' },
+        workout: {
+          date: '2026-06-01',
+          sportTypeId: runSportId,
+          title: 'Main 10k Run',
+          plannedDurationMinutes: 51,
+          plannedDistanceKilometers: 10.2,
+        },
+        errors: [],
+        isValid: true,
+      },
+    ];
+
+    const synced = applySmartSync(incoming, mockExisting);
+
+    const warmupResult = synced.find((r) => r.workout?.title === 'Warmup Run');
+    const mainRunResult = synced.find(
+      (r) => r.workout?.title === 'Main 10k Run',
+    );
+
+    expect(warmupResult?.syncStatus).toBe('NEW');
+    expect(warmupResult?.workout?.id).toBeUndefined();
+
+    expect(mainRunResult?.syncStatus).toBe('SYNC');
+    expect(mainRunResult?.workout?.id).toBe('planned-10k-run');
+  });
+
+  it('EVENT SYNC: Correctly matches incoming Garmin activity to a planned Event segment', () => {
+    const mockEvents: Event[] = [
+      {
+        id: 'evt-perth-marathon',
+        date: '2026-07-15',
+        eventTypeId: 'et-race',
+        eventPriorityId: 'ep-a',
+        title: 'Perth Marathon',
+        priority: 'A',
+        description: 'Annual Marathon Race',
+        segments: [
+          {
+            id: 'seg-run',
+            eventId: 'evt-perth-marathon',
+            sportTypeId: runSportId,
+            sportName: 'Run',
+            plannedDurationMinutes: 210,
+            plannedDistanceKilometers: 42.2,
+            effortLevel: 4,
+            segmentOrder: 1,
+          },
+        ],
+      },
+    ];
+
+    const incoming: ProcessedImportRow[] = [
+      {
+        row: { date: '2026-07-15', title: 'Garmin Marathon Activity' },
+        workout: {
+          date: '2026-07-15',
+          sportTypeId: runSportId,
+          title: 'Garmin Marathon Activity',
+          plannedDurationMinutes: 208,
+          plannedDistanceKilometers: 42.15,
+        },
+        errors: [],
+        isValid: true,
+      },
+    ];
+
+    const synced = applySmartSync(incoming, [], mockEvents);
+
+    expect(synced[0].syncStatus).toBe('SYNC');
+    expect(synced[0].workout?.title).toBe('Perth Marathon - Run');
+    expect(synced[0].workout?.eventId).toBe('evt-perth-marathon');
+    expect(synced[0].workout?.eventSegmentId).toBe('seg-run');
+    expect(synced[0].workout?.isKeyWorkout).toBe(true);
+    expect(synced[0].workout?.description).toContain('Event: Perth Marathon');
+  });
+
+  it('EVENT VS WORKOUT: Selects closest match between planned workout and planned event', () => {
+    const mockExisting: Workout[] = [
+      {
+        id: 'easy-recovery-run',
+        date: '2026-08-01',
+        sportTypeId: runSportId,
+        title: 'Easy 5k Recovery',
+        description: '',
+        plannedDurationMinutes: 30,
+        plannedDistanceKilometers: 5,
+        effortLevel: 1,
+        isKeyWorkout: false,
+        intervals: [],
+      },
+    ];
+
+    const mockEvents: Event[] = [
+      {
+        id: 'half-marathon-event',
+        date: '2026-08-01',
+        eventTypeId: 'et-race',
+        eventPriorityId: 'ep-a',
+        title: 'City Half Marathon',
+        priority: 'A',
+        segments: [
+          {
+            id: 'hm-seg',
+            eventId: 'half-marathon-event',
+            sportTypeId: runSportId,
+            sportName: 'Run',
+            plannedDurationMinutes: 105,
+            plannedDistanceKilometers: 21.1,
+            effortLevel: 4,
+            segmentOrder: 1,
+          },
+        ],
+      },
+    ];
+
+    const incoming: ProcessedImportRow[] = [
+      {
+        row: { date: '2026-08-01', title: 'Half Marathon Race' },
+        workout: {
+          date: '2026-08-01',
+          sportTypeId: runSportId,
+          title: 'Half Marathon Race',
+          plannedDurationMinutes: 104,
+          plannedDistanceKilometers: 21.15,
+        },
+        errors: [],
+        isValid: true,
+      },
+    ];
+
+    const synced = applySmartSync(incoming, mockExisting, mockEvents);
+
+    expect(synced[0].syncStatus).toBe('SYNC');
+    expect(synced[0].workout?.title).toBe('City Half Marathon - Run');
+  });
+
+  it('TRIPLE ACTIVITY: Correctly matches main workout when Warmup, Main Run, and Cooldown are recorded on same day', () => {
+    const mockExisting: Workout[] = [
+      {
+        id: 'planned-main-workout',
+        date: '2026-09-10',
+        sportTypeId: runSportId,
+        title: '10k Threshold Intervals',
+        description: '10k main set',
+        plannedDurationMinutes: 50,
+        plannedDistanceKilometers: 10,
+        effortLevel: 3,
+        isKeyWorkout: true,
+        intervals: [],
+      },
+    ];
+
+    const incoming: ProcessedImportRow[] = [
+      {
+        row: { date: '2026-09-10', title: 'Pre-workout Warmup' },
+        workout: {
+          date: '2026-09-10',
+          sportTypeId: runSportId,
+          title: 'Pre-workout Warmup',
+          plannedDurationMinutes: 10,
+          plannedDistanceKilometers: 1.5,
+        },
+        errors: [],
+        isValid: true,
+      },
+      {
+        row: { date: '2026-09-10', title: 'Threshold Run' },
+        workout: {
+          date: '2026-09-10',
+          sportTypeId: runSportId,
+          title: 'Threshold Run',
+          plannedDurationMinutes: 49,
+          plannedDistanceKilometers: 10.1,
+        },
+        errors: [],
+        isValid: true,
+      },
+      {
+        row: { date: '2026-09-10', title: 'Post-workout Cooldown' },
+        workout: {
+          date: '2026-09-10',
+          sportTypeId: runSportId,
+          title: 'Post-workout Cooldown',
+          plannedDurationMinutes: 12,
+          plannedDistanceKilometers: 2.0,
+        },
+        errors: [],
+        isValid: true,
+      },
+    ];
+
+    const synced = applySmartSync(incoming, mockExisting);
+
+    const warmup = synced.find(
+      (r) => r.workout?.title === 'Pre-workout Warmup',
+    );
+    const main = synced.find((r) => r.workout?.title === 'Threshold Run');
+    const cooldown = synced.find(
+      (r) => r.workout?.title === 'Post-workout Cooldown',
+    );
+
+    // Warmup and Cooldown should remain as standalone NEW activities
+    expect(warmup?.syncStatus).toBe('NEW');
+    expect(warmup?.workout?.id).toBeUndefined();
+
+    expect(cooldown?.syncStatus).toBe('NEW');
+    expect(cooldown?.workout?.id).toBeUndefined();
+
+    // Main Threshold Run should be matched to the planned 10k workout
+    expect(main?.syncStatus).toBe('SYNC');
+    expect(main?.workout?.id).toBe('planned-main-workout');
   });
 });

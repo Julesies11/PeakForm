@@ -49,6 +49,8 @@ export interface Workout {
   appliedPlanId?: string;
   planTemplateId?: string;
   categoryId?: string;
+  eventId?: string;
+  eventSegmentId?: string;
   weekNumber?: number;
   dayOfWeek?: number;
 }

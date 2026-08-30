@@ -3,11 +3,13 @@ import { parseISO } from 'date-fns';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   Event,
+  EventSegment,
   SportTypeRecord,
   UserSportSettings,
   Workout,
 } from '@/types/training';
 import { getEffortColor } from '@/services/training/effort-colors';
+import { getUnfulfilledEventSegments } from '@/services/training/volume-dedup.utils';
 
 type ViewType = 'week' | 'month';
 
@@ -68,17 +70,35 @@ export const SportDistribution = memo(function SportDistribution({
       return d >= start && d < end;
     });
 
+    const workoutsByDate = new Map<string, Workout[]>();
+    filteredWorkouts.forEach((w) => {
+      const list = workoutsByDate.get(w.date) || [];
+      list.push(w);
+      workoutsByDate.set(w.date, list);
+    });
+
+    const eventsByDate = new Map<string, Event[]>();
+    filteredEvents.forEach((e) => {
+      const list = eventsByDate.get(e.date) || [];
+      list.push(e);
+      eventsByDate.set(e.date, list);
+    });
+
+    const unfulfilledSegments: EventSegment[] = [];
+    eventsByDate.forEach((dayEvents, dateStr) => {
+      const dayWorkouts = workoutsByDate.get(dateStr) || [];
+      unfulfilledSegments.push(
+        ...getUnfulfilledEventSegments(dayEvents, dayWorkouts),
+      );
+    });
+
     let totalDuration = filteredWorkouts.reduce((sum, w) => {
       const dur = w.plannedDurationMinutes || 0;
       return sum + dur;
     }, 0);
 
-    filteredEvents.forEach((event) => {
-      if (event.segments && event.segments.length > 0) {
-        event.segments.forEach((seg) => {
-          totalDuration += seg.plannedDurationMinutes || 0;
-        });
-      }
+    unfulfilledSegments.forEach((seg) => {
+      totalDuration += seg.plannedDurationMinutes || 0;
     });
 
     totalDuration = totalDuration || 1;
@@ -86,19 +106,15 @@ export const SportDistribution = memo(function SportDistribution({
     return sportTypes
       .map((st) => {
         let sportDuration = filteredWorkouts
-          .filter((w) => w.sportName === st.name)
+          .filter((w) => w.sportName === st.name || w.sportTypeId === st.id)
           .reduce((sum, w) => {
             const dur = w.plannedDurationMinutes || 0;
             return sum + dur;
           }, 0);
 
-        filteredEvents.forEach((event) => {
-          if (event.segments && event.segments.length > 0) {
-            event.segments.forEach((seg) => {
-              if (seg.sportName === st.name) {
-                sportDuration += seg.plannedDurationMinutes || 0;
-              }
-            });
+        unfulfilledSegments.forEach((seg) => {
+          if (seg.sportName === st.name || seg.sportTypeId === st.id) {
+            sportDuration += seg.plannedDurationMinutes || 0;
           }
         });
 

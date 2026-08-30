@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { Star } from 'lucide-react';
+import { CheckCircle2, Star } from 'lucide-react';
 import {
   Event,
   Note,
@@ -22,6 +22,36 @@ import {
 } from '@/services/training/pace-utils';
 import { getSportIcon } from '@/services/training/sport-icons';
 import { getEventTypeTheme } from '../../_shared/utils/event-theme';
+
+function isWorkoutLinkedToEvent(w: Workout, dayEvents: Event[]): boolean {
+  if (w.eventId && dayEvents.some((e) => e.id === w.eventId)) {
+    return true;
+  }
+  return dayEvents.some((e) => {
+    const descMatch = (w.description || '').includes(`(Event: ${e.title})`);
+    const titleMatch = (w.title || '').startsWith(e.title);
+    return descMatch || titleMatch;
+  });
+}
+
+function getLinkedWorkoutForSegment(
+  event: Event,
+  seg: any,
+  dayWorkouts: Workout[],
+): Workout | undefined {
+  return dayWorkouts.find((w) => {
+    if (w.eventSegmentId && w.eventSegmentId === seg.id) return true;
+    if (
+      w.eventId &&
+      w.eventId === event.id &&
+      w.sportTypeId === seg.sportTypeId
+    )
+      return true;
+    const descMatch = (w.description || '').includes(`(Event: ${event.title})`);
+    const titleMatch = (w.title || '').startsWith(event.title);
+    return (descMatch || titleMatch) && w.sportTypeId === seg.sportTypeId;
+  });
+}
 
 interface CalendarDayProps {
   date: Date;
@@ -172,7 +202,9 @@ export const CalendarDay = React.memo(
                       {event.segments!.map((seg, segIdx) => (
                         <EventSegment
                           key={segIdx}
+                          event={event}
                           seg={seg}
+                          dayWorkouts={workouts}
                           sportMap={sportMap}
                           userSettingsMap={userSettingsMap}
                         />
@@ -217,56 +249,58 @@ export const CalendarDay = React.memo(
             );
           })}
 
-          {/* Workouts */}
-          {workouts.map((w, wIdx) => {
-            const itemIndex = events.length + notes.length + wIdx;
-            const wSt = sportMap.get(w.sportTypeId);
-            const bg = getEffortColor(
-              wSt,
-              w.effortLevel || 1,
-              userSettingsMap.get(w.sportTypeId),
-            );
-            const dur = w.plannedDurationMinutes || 0;
-            const distKm = w.plannedDistanceKilometers || 0;
-            const dist = isMetersDistance(wSt?.distanceUnit, wSt?.name)
-              ? distKm * 1000
-              : distKm;
-            const pace = calculatePace(wSt?.paceUnit, dur, dist, wSt?.name);
+          {/* Workouts (Standalone - excluding workouts visually nested inside Event Cards) */}
+          {workouts
+            .filter((w) => !isWorkoutLinkedToEvent(w, events))
+            .map((w, wIdx) => {
+              const itemIndex = events.length + notes.length + wIdx;
+              const wSt = sportMap.get(w.sportTypeId);
+              const bg = getEffortColor(
+                wSt,
+                w.effortLevel || 1,
+                userSettingsMap.get(w.sportTypeId),
+              );
+              const dur = w.plannedDurationMinutes || 0;
+              const distKm = w.plannedDistanceKilometers || 0;
+              const dist = isMetersDistance(wSt?.distanceUnit, wSt?.name)
+                ? distKm * 1000
+                : distKm;
+              const pace = calculatePace(wSt?.paceUnit, dur, dist, wSt?.name);
 
-            return (
-              <React.Fragment key={w.id}>
-                {dragOverInfo?.date === dateStr &&
-                  isDraggingId &&
-                  dragOverInfo.index === itemIndex && <DropIndicator />}
-                <div
-                  data-drop-item
-                  draggable="true"
-                  onDragStart={(e) => onDragStart(e, w)}
-                  onDragEnd={onDragEnd}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditWorkout(w);
-                  }}
-                  className={`relative cursor-grab overflow-hidden rounded-lg p-1 shadow-sm transition-all hover:shadow-md active:scale-95 active:cursor-grabbing lg:p-2 ${getContrastColor(bg)} ${w.isKeyWorkout ? 'border-l-[3px] border-l-white/80 dark:border-l-white/90 shadow-md' : ''} ${isDraggingId === w.id ? 'scale-95 opacity-20' : ''}`}
-                  style={{ backgroundColor: bg }}
-                >
-                  {w.isKeyWorkout && (
-                    <Star className="absolute top-0.5 right-0.5 h-3 w-3 fill-white/90 text-white/90 drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)] lg:h-4 lg:w-4" />
-                  )}
-                  <div className="pointer-events-none flex flex-col gap-0.5 leading-none">
-                    <WorkoutContent
-                      workout={w}
-                      sport={wSt}
-                      dur={dur}
-                      dist={dist}
-                      pace={pace}
-                      showStats={showStats}
-                    />
+              return (
+                <React.Fragment key={w.id}>
+                  {dragOverInfo?.date === dateStr &&
+                    isDraggingId &&
+                    dragOverInfo.index === itemIndex && <DropIndicator />}
+                  <div
+                    data-drop-item
+                    draggable="true"
+                    onDragStart={(e) => onDragStart(e, w)}
+                    onDragEnd={onDragEnd}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditWorkout(w);
+                    }}
+                    className={`relative cursor-grab overflow-hidden rounded-lg p-1 shadow-sm transition-all hover:shadow-md active:scale-95 active:cursor-grabbing lg:p-2 ${getContrastColor(bg)} ${w.isKeyWorkout ? 'border-l-[3px] border-l-white/80 dark:border-l-white/90 shadow-md' : ''} ${isDraggingId === w.id ? 'scale-95 opacity-20' : ''}`}
+                    style={{ backgroundColor: bg }}
+                  >
+                    {w.isKeyWorkout && (
+                      <Star className="absolute top-0.5 right-0.5 h-3 w-3 fill-white/90 text-white/90 drop-shadow-[0_1px_1px_rgba(0,0,0,0.3)] lg:h-4 lg:w-4" />
+                    )}
+                    <div className="pointer-events-none flex flex-col gap-0.5 leading-none">
+                      <WorkoutContent
+                        workout={w}
+                        sport={wSt}
+                        dur={dur}
+                        dist={dist}
+                        pace={pace}
+                        showStats={showStats}
+                      />
+                    </div>
                   </div>
-                </div>
-              </React.Fragment>
-            );
-          })}
+                </React.Fragment>
+              );
+            })}
 
           {/* Drop zone indicator - after last item */}
           {dragOverInfo?.date === dateStr &&
@@ -323,49 +357,119 @@ const PriorityBadge = ({ priority }: { priority?: string }) => {
   );
 };
 
-const EventSegment = ({ seg, sportMap, userSettingsMap }: any) => {
+const EventSegment = ({
+  event,
+  seg,
+  dayWorkouts = [],
+  sportMap,
+  userSettingsMap,
+}: any) => {
+  const linkedWorkout = getLinkedWorkoutForSegment(event, seg, dayWorkouts);
+
   const sport = sportMap.get(seg.sportTypeId);
   const color = getEffortColor(
     sport,
     seg.effortLevel,
     userSettingsMap.get(seg.sportTypeId),
   );
-  const distKm = seg.plannedDistanceKilometers || 0;
-  const dist = isMetersDistance(sport?.distanceUnit, sport?.name)
-    ? distKm * 1000
-    : distKm;
-  const pace = calculatePace(
+  const plannedDistKm = seg.plannedDistanceKilometers || 0;
+  const plannedDist = isMetersDistance(sport?.distanceUnit, sport?.name)
+    ? plannedDistKm * 1000
+    : plannedDistKm;
+  const plannedPace = calculatePace(
     sport?.paceUnit,
     seg.plannedDurationMinutes || 0,
-    dist,
+    plannedDist,
     sport?.name,
   );
   const sportName = seg.sportName || sport?.name || 'Unknown';
   const IconComponent = getSportIcon(sportName, sport?.paceUnit);
 
+  // Actual performance metrics from linked workout
+  const actualDur =
+    linkedWorkout?.actualDurationMinutes ||
+    linkedWorkout?.plannedDurationMinutes;
+  const actualDistKm =
+    linkedWorkout?.actualDistanceKilometers ||
+    linkedWorkout?.plannedDistanceKilometers;
+  const actualDist = isMetersDistance(sport?.distanceUnit, sport?.name)
+    ? (actualDistKm || 0) * 1000
+    : actualDistKm || 0;
+  const actualPace = calculatePace(
+    sport?.paceUnit,
+    actualDur || 0,
+    actualDist,
+    sport?.name,
+  );
+
   return (
     <div
-      className="flex items-center gap-1 rounded p-1"
-      style={{ borderLeftWidth: '2px', borderLeftColor: color }}
+      className={`flex flex-col gap-1 rounded p-1.5 transition-all ${
+        linkedWorkout
+          ? 'bg-green-500/10 dark:bg-green-500/20 border-l-2 border-l-green-500'
+          : ''
+      }`}
+      style={
+        !linkedWorkout
+          ? { borderLeftWidth: '2px', borderLeftColor: color }
+          : undefined
+      }
     >
-      {IconComponent && (
-        <IconComponent className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:h-4 lg:w-4" />
-      )}
-      <div className="flex flex-col gap-0.5 text-[10px] leading-none lg:text-xs">
-        <span>{sportName}</span>
-        {seg.plannedDurationMinutes > 0 && (
-          <span className="text-muted-foreground">
-            {formatMinsShort(seg.plannedDurationMinutes)}
-          </span>
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          {IconComponent && (
+            <IconComponent className="h-3.5 w-3.5 shrink-0 text-muted-foreground lg:h-4 lg:w-4" />
+          )}
+          <span className="text-[10px] font-bold lg:text-xs">{sportName}</span>
+        </div>
+        {linkedWorkout && (
+          <div className="flex items-center gap-0.5 text-green-600 dark:text-green-400 text-[9px] font-black uppercase">
+            <CheckCircle2 className="h-3 w-3" />
+            <span>Synced</span>
+          </div>
         )}
-        {dist > 0 && isPaceRelevant(!!sport?.paceRelevant, sport?.paceUnit) && (
-          <span className="text-muted-foreground">
-            {dist}
-            {sport.distanceUnit || 'km'}
-          </span>
-        )}
-        {pace && <span className="text-muted-foreground">{pace}</span>}
       </div>
+
+      {linkedWorkout ? (
+        <div className="flex flex-col gap-0.5 text-[9px] lg:text-[10px]">
+          <div className="font-extrabold text-foreground">
+            {formatMinsShort(actualDur || 0)}
+            {actualDist > 0 &&
+            isPaceRelevant(!!sport?.paceRelevant, sport?.paceUnit)
+              ? ` · ${actualDist.toFixed(1)}${sport?.distanceUnit || 'km'}`
+              : ''}
+            {actualPace ? ` (${actualPace})` : ''}
+          </div>
+          {seg.plannedDurationMinutes > 0 && (
+            <div className="text-muted-foreground opacity-75 italic text-[8px] lg:text-[9px]">
+              target: {formatMinsShort(seg.plannedDurationMinutes)}
+              {plannedDist > 0 &&
+              isPaceRelevant(!!sport?.paceRelevant, sport?.paceUnit)
+                ? ` · ${plannedDist}${sport?.distanceUnit || 'km'}`
+                : ''}
+              {plannedPace ? ` (${plannedPace})` : ''}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-0.5 text-[10px] leading-none lg:text-xs">
+          {seg.plannedDurationMinutes > 0 && (
+            <span className="text-muted-foreground">
+              {formatMinsShort(seg.plannedDurationMinutes)}
+            </span>
+          )}
+          {plannedDist > 0 &&
+            isPaceRelevant(!!sport?.paceRelevant, sport?.paceUnit) && (
+              <span className="text-muted-foreground">
+                {plannedDist}
+                {sport?.distanceUnit || 'km'}
+              </span>
+            )}
+          {plannedPace && (
+            <span className="text-muted-foreground">{plannedPace}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 };

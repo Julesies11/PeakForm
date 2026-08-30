@@ -74,13 +74,17 @@ describe('Smoke Test: Responsive Layout Pages', () => {
       ).toBeDefined();
     });
     expect(screen.getByText(/interactive calendar/i)).toBeDefined();
-    expect(screen.getAllByText(/garmin csv import/i).length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText(/garmin csv import/i).length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('renders LandingPage navigation header', async () => {
     render(<LandingPage />);
     expect(screen.getAllByText(/sign in/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/register for free/i).length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText(/register for free/i).length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it('renders LandingPage footer copyright', async () => {

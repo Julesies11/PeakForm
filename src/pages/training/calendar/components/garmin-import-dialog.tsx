@@ -22,6 +22,7 @@ import {
   useCreateWorkoutsBulk,
   useSportTypes,
 } from '@/hooks/use-training-data';
+import { eventsApi } from '@/services/api/training/events.api';
 import { workoutsApi } from '@/services/api/training/workouts.api';
 import { parseGarminCSV } from '@/services/training/garmin.utils';
 import { ProcessedImportRow } from '@/services/training/import.utils';
@@ -129,15 +130,14 @@ export function GarminImportDialog({
         const fromDate = sortedDates[0];
         const toDate = sortedDates[sortedDates.length - 1];
 
-        // 3. Fetch existing workouts for the range
-        const existingWorkouts = await workoutsApi.getAll(
-          userId,
-          fromDate,
-          toDate,
-        );
+        // 3. Fetch existing workouts and events for the range
+        const [existingWorkouts, existingEvents] = await Promise.all([
+          workoutsApi.getAll(userId, fromDate, toDate),
+          eventsApi.getAll(userId, fromDate, toDate),
+        ]);
 
         // 4. Apply Smart Sync matching
-        results = applySmartSync(rawResults, existingWorkouts);
+        results = applySmartSync(rawResults, existingWorkouts, existingEvents);
       }
 
       setProcessedRows(results);
